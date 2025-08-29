@@ -27,10 +27,7 @@ def get_top_vacancies() -> List[Vacancy]:
         'Accept': 'application/json',
     }
     
-    try:
-        print("Отправляем запрос к API hh.ru...")
-        print(f"Параметры поиска: {params}")
-        
+    try:  
         page = 0
         max_pages = 20
         
@@ -41,15 +38,11 @@ def get_top_vacancies() -> List[Vacancy]:
             response = requests.get(api_url, params=params, headers=headers, timeout=15)
             response.raise_for_status()
             
-            print(f"Получен ответ: {response.status_code}")
-            
             data = response.json()
             
             if 'items' not in data or not data['items']:
                 print(f"Не найдены вакансии на странице {page + 1}")
                 break
-            
-            print(f"Найдено вакансий на странице {page + 1}: {len(data['items'])}")
             
             for item in data['items']:
                 try:
@@ -57,11 +50,9 @@ def get_top_vacancies() -> List[Vacancy]:
                     
                     title_lower = title.lower()
                     if any(word.lower() in title_lower for word in excluded_words):
-                        print(f"Пропускаем из-за исключенного слова: {title}")
                         continue
                     
                     if not any(spec.lower() in title_lower for spec in specializations):
-                        print(f"Пропускаем из-за несоответствия специализации: {title}")
                         continue
                     
                     project_keywords = ['проект', 'временн', 'контракт', 'аутсорс', 'фриланс']
@@ -73,11 +64,9 @@ def get_top_vacancies() -> List[Vacancy]:
                     schedule = item.get('schedule', {}).get('id', '')
                     
                     if employment and employment not in allowed_employment_types:
-                        print(f"Пропускаем из-за недопустимого типа занятости ({employment}): {title}")
                         continue
                     
                     if schedule and schedule not in allowed_schedule_types:
-                        print(f"Пропускаем из-за недопустимого формата работы ({schedule}): {title}")
                         continue
                     
                     url = item.get('alternate_url', '')
@@ -128,7 +117,7 @@ def get_top_vacancies() -> List[Vacancy]:
         print(f"Всего найдено подходящих вакансий: {len(vacancies)}")
         
         if not vacancies:
-            print("Не найдено вакансий, возвращаем заглушку")
+            print("Не найдено вакансий")
             return
             
     except requests.RequestException as e:
