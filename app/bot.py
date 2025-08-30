@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import List
 
 import aiohttp
@@ -7,9 +8,24 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler import events
 
 from app.config import config
 from app.models import Vacancy
+
+PLANNING_HOUR = 6
+PLANNING_MINUTE = 0
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('logs/bot.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # Валидируем конфигурацию при импорте
 config.validate()
@@ -25,16 +41,18 @@ scheduler = AsyncIOScheduler()
 async def get_vacancies_from_api() -> List[Vacancy]:
     try:
         api_url = f"http://{config.API_HOST}:{config.API_PORT}/vacancies"
+        logger.info(f"Запрос к API: {api_url}")
         async with aiohttp.ClientSession() as session:
             async with session.get(api_url) as response:
                 if response.status == 200:
                     data = await response.json()
+                    logger.info(f"Получено {len(data)} вакансий из API")
                     return [Vacancy(**vacancy) for vacancy in data]
                 else:
-                    print(f"API вернул статус {response.status}")
+                    logger.error(f"API вернул статус {response.status}")
                     return []
     except Exception as e:
-        print(f"Ошибка при получении вакансий из API: {e}")
+        logger.error(f"Ошибка при получении вакансий из API: {e}")
         return []
 
 
@@ -52,11 +70,11 @@ def format_vacancy_message(vacancy: Vacancy) -> str:
 
 async def send_daily_vacancies() -> None:
     if not config.NOTIFICATION_USER_ID:
-        print("❌ ID пользователя для уведомлений не установлен")
+        logger.error("❌ ID пользователя для уведомлений не установлен")
         return
 
     try:
-        print("🕕 Отправка ежедневных вакансий...")
+        logger.info("🕕 Отправка ежедневных вакансий...")
 
         vacancies = await get_vacancies_from_api()
 
@@ -96,10 +114,10 @@ async def send_daily_vacancies() -> None:
             "обновления списка.",
         )
 
-        print("✅ Ежедневные вакансии отправлены успешно")
+        logger.info("✅ Ежедневные вакансии отправлены успешно")
 
     except Exception as e:
-        print(f"❌ Ошибка при отправке ежедневных вакансий: {e}")
+        logger.error(f"❌ Ошибка при отправке ежедневных вакансий: {e}")
         try:
             await bot.send_message(
                 config.NOTIFICATION_USER_ID,
@@ -173,25 +191,44 @@ async def echo_message(message: Message) -> None:
 
 def setup_scheduler() -> None:
     # Добавляем задачу на отправку вакансий каждый день в 6:00
-    scheduler.add_job(
+    job = scheduler.add_job(
         send_daily_vacancies,
-        CronTrigger(hour=6, minute=0),
+        CronTrigger(hour=PLANNING_HOUR-3, minute=PLANNING_MINUTE),
         id="daily_vacancies",
         name="Отправка ежедневных вакансий",
         replace_existing=True,
     )
 
-    print("⏰ Планировщик настроен: вакансии будут отправляться каждый день в 6:00")
+    logger.info(f"⏰ Планировщик настроен: вакансии будут отправляться каждый день в 6:00")
+    logger.info(f"📅 Следующий запуск задачи: {job.next_run_time if hasattr(job, 'next_run_time') else 'Не определено'}")
+    
+    # Добавляем обработчик ошибок планировщика
+    def job_error_listener(event):
+        logger.error(f"❌ Ошибка в задаче планировщика: {event.exception}")
+        logger.error(f"   Задача: {event.job_id}")
+        logger.error(f"   Детали: {event.traceback}")
+
+    scheduler.add_listener(job_error_listener, events.EVENT_JOB_ERROR)
+    logger.info("🔧 Добавлен обработчик ошибок планировщика")
 
 
 async def main() -> None:
-    print("🤖 Запуск Telegram бота...")
+    logger.info("🤖 Запуск Telegram бота...")
+    logger.info(f"🔧 Конфигурация: API_HOST={config.API_HOST}, API_PORT={config.API_PORT}")
+    logger.info(f"👤 USER_ID для уведомлений: {config.NOTIFICATION_USER_ID}")
 
     setup_scheduler()
 
     # Запускаем планировщик
     scheduler.start()
-    print("✅ Планировщик запущен")
+    logger.info("✅ Планировщик запущен")
+    
+    # Выводим информацию о запланированных задачах
+    jobs = scheduler.get_jobs()
+    logger.info(f"📋 Активных задач в планировщике: {len(jobs)}")
+    for job in jobs:
+        next_run = job.next_run_time if hasattr(job, 'next_run_time') else 'Не определено'
+        logger.info(f"  - {job.name} (ID: {job.id}): {next_run}")
 
     try:
         # Запускаем бота
@@ -199,7 +236,7 @@ async def main() -> None:
     finally:
         # Останавливаем планировщик при завершении
         scheduler.shutdown()
-        print("🛑 Планировщик остановлен")
+        logger.info("🛑 Планировщик остановлен")
 
 
 if __name__ == "__main__":
