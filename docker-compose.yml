@@ -1,0 +1,37 @@
+services:
+  vakanse-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: vakanse-tgbot
+    restart: unless-stopped
+    ports:
+      - "${PORT}:${PORT}"
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - API_HOST=${HOST}
+      - API_PORT=${PORT}
+      - LOG_LEVEL=INFO
+    env_file:
+      - .env
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import requests; requests.get('http://localhost:8000/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - vakanse-network
+
+networks:
+  vakanse-network:
+    driver: bridge
